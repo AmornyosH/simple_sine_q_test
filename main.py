@@ -26,11 +26,17 @@ def getParamsDict(env):
 def createDataset():
     # Piecewise waveform function
     def non_smooth_function(x):
+        # return np.piecewise(x,
+        #                     [x < 3, (x >= 3) & (x < 6), x >= 6],
+        #                     [lambda x: np.sin(2 * x),
+        #                     lambda x: np.sin(10 * x),
+        #                     lambda x: np.sin(2 * x + 5)])
         return np.piecewise(x,
-                            [x < 3, (x >= 3) & (x < 6), x >= 6],
-                            [lambda x: np.sin(2 * x),
-                            lambda x: np.sin(10 * x),
-                            lambda x: np.sin(2 * x + 5)])
+                     [x < 5, (x >= 5) & (x < 10), (x >= 10) & (x < 15), x >= 15],
+                     [lambda x: 0,
+                      lambda x: 1,
+                      lambda x: -1,
+                      lambda x: 0.5])
 
     def _getQvalue(x_test):
         _gamma = 0.99
@@ -45,7 +51,7 @@ def createDataset():
     
     _x = []
     for _ in range(20):
-        _x.append(np.arange(start=0., stop=2*np.pi, step=0.05))
+        _x.append(np.arange(start=0., stop=4*np.pi, step=0.05))
     _x = np.hstack(_x)
     _y = np.zeros([len(_x)])
     _r = np.zeros([len(_y)])  
@@ -59,9 +65,9 @@ def createDataset():
                 _y[i] = -np.sin(_x[i]) + np.random.normal(0, 0.05, size=1)
         elif args.env == 'sharp_sine':
             if i <= len(_y)//2:
-                _y[i] = non_smooth_function(_x[i]) + np.random.normal(0, 0.05, size=1)
+                _y[i] = np.sin(_x[i]) + non_smooth_function(_x[i]) + np.random.normal(0, 0.05, size=1)
             else:
-                _y[i] = -non_smooth_function(_x[i]) + np.random.normal(0, 0.05, size=1)
+                _y[i] = -(np.sin(_x[i]) + non_smooth_function(_x[i]) + np.random.normal(0, 0.05, size=1))
 
     for j in range(len(_r)):
         if _x[j] <= 2*np.pi:
@@ -110,38 +116,38 @@ if args.alg == 'GPDQ':
 elif args.alg == 'IQL':
     agent = MyCustomIQL(params_dict=params_dict[args.env], dataset=dataset, ft=False)
 
-# ========== Training (Offline)
-EPOCH = int(args.gradient_step) / (agent.NUM_SAMPLE//agent.MINIBATCH_SIZE)
-if args.task == 'training':
-    # Train Diffusion Policy and Value functions.
-    # while agent.beh_training_record < EPOCH or agent.training_record < EPOCH:
-    while agent.training_record < EPOCH:
-        print('Start Offline Training...')
-        # Train the algorithm.
-        agent.training(total_epoch=EPOCH, eval=False)
+# # ========== Training (Offline)
+# EPOCH = int(args.gradient_step) / (agent.NUM_SAMPLE//agent.MINIBATCH_SIZE)
+# if args.task == 'training':
+#     # Train Diffusion Policy and Value functions.
+#     # while agent.beh_training_record < EPOCH or agent.training_record < EPOCH:
+#     while agent.training_record < EPOCH:
+#         print('Start Offline Training...')
+#         # Train the algorithm.
+#         agent.training(total_epoch=EPOCH, eval=False)
     
-    print('Training is done!')
-    # pred_y = agent.predict(state=x, size=len(x), guide=False).detach().numpy()
-    pred_q = agent.q_1(torch.concat([torch.tensor(x[0:250], dtype=torch.float32), 
-                                     torch.tensor(y[0:250], dtype=torch.float32)], dim=1)).tolist()
-if args.task == 'testing':
-    pred_y = agent.predict(state=x[0:250], size=250, guide=True).detach().numpy()
-    pred_q = agent.q_1(torch.concat([torch.tensor(x[0:250], dtype=torch.float32), 
-                                     torch.tensor(pred_y, dtype=torch.float32)], dim=1)).tolist()
-    np.save(agent.q_eval_path, pred_q)
+#     print('Training is done!')
+#     # pred_y = agent.predict(state=x, size=len(x), guide=False).detach().numpy()
+#     pred_q = agent.q_1(torch.concat([torch.tensor(x[0:250], dtype=torch.float32), 
+#                                      torch.tensor(y[0:250], dtype=torch.float32)], dim=1)).tolist()
+# if args.task == 'testing':
+#     pred_y = agent.predict(state=x[0:250], size=250, guide=True).detach().numpy()
+#     pred_q = agent.q_1(torch.concat([torch.tensor(x[0:250], dtype=torch.float32), 
+#                                      torch.tensor(pred_y, dtype=torch.float32)], dim=1)).tolist()
+#     np.save(agent.q_eval_path, pred_q)
 
 # Create subplots
 fig, axs = plt.subplots(2, 1, figsize=(10, 6), sharex=True)
 # Plot sine wave
 axs[0].scatter(x, y, color='blue', label='Ground Truth')
-axs[0].scatter(x[0:250], pred_y, color='purple', label='GPDQ')
+# axs[0].scatter(x[0:250], pred_y, color='purple', label='GPDQ')
 axs[0].set_title('Sine Wave')
 axs[0].grid(True)
 axs[0].legend()
 # Plot negative sine wave
 axs[1].scatter(x[0:250], q, color='black', label='Ground Truth (Q)')
 # axs[1].scatter(x, r, color='blue', label='Ground Truth (R)')
-axs[1].scatter(x[0:250], pred_q, color='blue', label='Q-GPDQ')
+# axs[1].scatter(x[0:250], pred_q, color='blue', label='Q-GPDQ')
 # axs[1].scatter(x, r, color='red', label='Rewards')
 axs[1].set_title('State-Action Value Function (Q-value)')
 axs[1].grid(True)

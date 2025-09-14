@@ -5,7 +5,8 @@ import torch
 import argparse
 import os
 
-from GPDQ.GPDQ import GaussianProcessDiffusionQlearning
+from GPDQ.GPDQ import GaussianProcessDiffusionQlearning as GPDQ_A
+from GPDQ_matern.GPDQ_matern import GaussianProcessDiffusionQlearning
 from IQL.IQL import MyCustomIQL
 
 def addArguments(parser):
@@ -21,7 +22,8 @@ def setGlobalSeed(seed:int):
 
 def getParamsDict(env):
     return {'simple_sine' : {'environment': 'simple_sine', 'horizon': (4*np.pi//0.05)//2, 'gp_num_sample': 250, 'gp_num_inducing': 25, 'gp_batch_size': 25, 'state_dim': 1, 'action_dim': 1, 'normalise_reward': False, 'diffusion_step': 50, 'task': TASK}, 
-            'sharp_sine' : {'environment': 'sharp_sine', 'horizon': (4*np.pi//0.05)//2, 'gp_num_sample': 250, 'gp_num_inducing': 25, 'gp_batch_size': 25, 'state_dim': 1, 'action_dim': 1, 'normalise_reward': False, 'diffusion_step': 50, 'task': TASK}}
+            'sharp_sine' : {'environment': 'sharp_sine', 'horizon': (4*np.pi//0.05)//2, 'gp_num_sample': 314, 'gp_num_inducing': 25, 'gp_batch_size': 25, 'state_dim': 1, 'action_dim': 1, 'normalise_reward': False, 'diffusion_step': 50, 'task': TASK}}
+
 
 def createDataset():
     # Piecewise waveform function
@@ -29,58 +31,83 @@ def createDataset():
         return np.piecewise(x,
                             [x < 3, (x >= 3) & (x < 6), x >= 6],
                             [lambda x: np.sin(2 * x),
-                            lambda x: np.sin(10 * x),
-                            lambda x: np.sin(2 * x + 5)])
+                             lambda x: np.sin(10 * x),
+                             lambda x: np.sin(2 * x + 5)])
+        # return np.piecewise(x,
+        #                     [x < 5, (x >= 5) & (x < 10), (x >= 10) & (x < 15), x >= 15],
+        #                     [lambda x: 0,
+        #                      lambda x: 1,
+        #                      lambda x: -1,
+        #                      lambda x: 0.5])
 
-    def _getQvalue(x_test):
+    def fluctuate_function(x):
+        if x < 0.5:
+            y = 0.3 * np.sin(x)
+        elif x >= 0.5 and x < 0.7:
+            y = 0.7 * np.sin(x)
+        elif x >= 1.5 and x < 2.7:
+            y = (0.2 * np.sin(x))
+        elif x >= 3.9 and x < 5.1:
+            y = (0.85 * np.sin(x))
+        elif x >= 5.6:
+            y = 0.4 * np.sin(x)
+        else:
+            y = np.sin(x)
+        return y
+    def _getQvalue(x_test, r_test):
         _gamma = 0.99
         _q = np.zeros([len(x_test)])
         for i in range(len(_q)):
             for j in range(len(_q)):
                 k = i
-                if j+k >= len(_q):
+                if j + k >= len(_q):
                     k = 0
-                _q[i] += ((_gamma)**j) * np.abs(np.sin(x_test[j+k]))
+                # _q[i] += ((_gamma) ** j) * (np.sin(x_test[j+k]) + non_smooth_function(x_test[j+k]))
+                _q[i] += ((_gamma) ** j) * np.abs(r_test[j+k])
         return _q
-    
+
     _x = []
-    for _ in range(20):
-        _x.append(np.arange(start=0., stop=2*np.pi, step=0.05))
+    for _ in range(100):
+        _x.append(np.arange(start=0., stop=2*np.pi, step=0.02))
     _x = np.hstack(_x)
     _y = np.zeros([len(_x)])
-    _r = np.zeros([len(_y)])  
+    _r = np.zeros([len(_y)])
 
     for i in range(len(_y)):
         if args.env == 'simple_sine':
-            if i <= len(_y)//2:
+            if i <= len(_y) // 2:
                 _y[i] = np.sin(_x[i]) + np.random.normal(0, 0.05, size=1)
                 # _y[i] = non_smooth_function(_x[i]) + np.random.normal(0, 0.05, size=1)
             else:
-                _y[i] = -np.sin(_x[i]) + np.random.normal(0, 0.05, size=1)
+                _y[i] = np.sin(_x[i]) + np.random.normal(0, 0.05, size=1)
         elif args.env == 'sharp_sine':
-            if i <= len(_y)//2:
-                _y[i] = non_smooth_function(_x[i]) + np.random.normal(0, 0.05, size=1)
+            if i <= len(_y) // 2:
+                _y[i] = fluctuate_function(_x[i]) + np.random.normal(0, 0.05, size=1)
+                # _y[i] = np.sin(3 * _x[i]) + np.random.normal(0, 1, size=1)
             else:
-                _y[i] = -non_smooth_function(_x[i]) + np.random.normal(0, 0.05, size=1)
+                _y[i] = -fluctuate_function(_x[i]) + np.random.normal(0, 0.05, size=1)
+                # _y[i] = -np.sin(3 * _x[i]) + np.random.normal(0, 1, size=1)
+
+            _y[i] = np.clip(_y[i], -1, 1)
 
     for j in range(len(_r)):
-        if _x[j] <= 2*np.pi:
+        if _x[j] <= np.pi:
             _r[j] = _y[j]
-        else: 
+        else:
             _r[j] = -_y[j]
-    
-    _q = _getQvalue(_x[0:250])
-        
+
+    _q = _getQvalue(_x[0:314], _r[0:314])
+
     _x_p_1 = np.zeros([len(_x)])
     _x_p_1[0:-2] = _x[1:-1]
     _x_p_1[-1] = _x[0]
 
     return {'arr_0': len(_x),
-           'observations': _x.reshape(-1, 1), 
-           'actions': _y.reshape(-1, 1), 
-           'rewards': _r.reshape(-1, 1), 
-           'next_observations': _x_p_1.reshape(-1, 1), 
-           'true_q': _q.reshape(-1, 1)}
+            'observations': _x.reshape(-1, 1),
+            'actions': _y.reshape(-1, 1),
+            'rewards': _r.reshape(-1, 1),
+            'next_observations': _x_p_1.reshape(-1, 1),
+            'true_q': _q.reshape(-1, 1)}
 
 # ========================================================== Main Program ========================================================== #
 seed = 2203
@@ -110,6 +137,10 @@ if args.alg == 'GPDQ':
 elif args.alg == 'IQL':
     agent = MyCustomIQL(params_dict=params_dict[args.env], dataset=dataset, ft=False)
 
+# compared_agent = GPDQ_A(params_dict=params_dict[args.env], dataset=dataset, ft=False)
+
+test_sample = agent.gp_model.num_sample
+
 # ========== Training (Offline)
 EPOCH = int(args.gradient_step) / (agent.NUM_SAMPLE//agent.MINIBATCH_SIZE)
 if args.task == 'training':
@@ -119,14 +150,17 @@ if args.task == 'training':
         print('Start Offline Training...')
         # Train the algorithm.
         agent.training(total_epoch=EPOCH, eval=False)
-    
+
     print('Training is done!')
     # pred_y = agent.predict(state=x, size=len(x), guide=False).detach().numpy()
-    pred_q = agent.q_1(torch.concat([torch.tensor(x[0:250], dtype=torch.float32), 
-                                     torch.tensor(y[0:250], dtype=torch.float32)], dim=1)).tolist()
+    pred_q = agent.q_1(torch.concat([torch.tensor(x[0:test_sample], dtype=torch.float32),
+                                     torch.tensor(y[0:test_sample], dtype=torch.float32)], dim=1)).tolist()
 if args.task == 'testing':
-    pred_y = agent.predict(state=x[0:250], size=250, guide=True).detach().numpy()
-    pred_q = agent.q_1(torch.concat([torch.tensor(x[0:250], dtype=torch.float32), 
+    pred_y = agent.predict(state=x[0:test_sample], size=test_sample, guide=True).cpu().detach().numpy()
+    pred_g_mu, pred_g_var = agent.predictGP(torch.tensor(x[0:test_sample], dtype=torch.float32).view(-1, 1))
+    pred_g_mu = np.reshape(pred_g_mu.tolist(), -1)
+    pred_g_var = np.sqrt(np.diagonal(pred_g_var.tolist()))
+    pred_q = agent.q_1(torch.concat([torch.tensor(x[0:test_sample], dtype=torch.float32),
                                      torch.tensor(pred_y, dtype=torch.float32)], dim=1)).tolist()
     np.save(agent.q_eval_path, pred_q)
 
@@ -134,14 +168,16 @@ if args.task == 'testing':
 fig, axs = plt.subplots(2, 1, figsize=(10, 6), sharex=True)
 # Plot sine wave
 axs[0].scatter(x, y, color='blue', label='Ground Truth')
-axs[0].scatter(x[0:250], pred_y, color='purple', label='GPDQ')
+axs[0].scatter(x[0:test_sample], pred_y, color='purple', label='GPDQ-GPDP')
+axs[0].plot(x[0:test_sample], pred_g_mu, color='green', label='GPDQ-GP')
+axs[0].fill_between(x[0:test_sample].flatten(), pred_g_mu + pred_g_var, pred_g_mu - pred_g_var, alpha=0.5, color='green')
 axs[0].set_title('Sine Wave')
 axs[0].grid(True)
 axs[0].legend()
 # Plot negative sine wave
-axs[1].scatter(x[0:250], q, color='black', label='Ground Truth (Q)')
+axs[1].scatter(x[0:test_sample], q, color='black', label='Ground Truth (Q)')
 # axs[1].scatter(x, r, color='blue', label='Ground Truth (R)')
-axs[1].scatter(x[0:250], pred_q, color='blue', label='Q-GPDQ')
+axs[1].scatter(x[0:test_sample], pred_q, color='blue', label='Q-GPDQ')
 # axs[1].scatter(x, r, color='red', label='Rewards')
 axs[1].set_title('State-Action Value Function (Q-value)')
 axs[1].grid(True)

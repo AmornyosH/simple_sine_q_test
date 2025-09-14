@@ -4,6 +4,7 @@ import torch
 
 # EXPERT_PATH = 'datasets/dataset_simple_sine.npz'
 EXPERT_PATH = 'datasets/dataset_sharp_sine.npz'
+test_sample = 314
 
 dataset = np.load(EXPERT_PATH, allow_pickle=True)  # ========== Load the dataset
 x = dataset['observations']
@@ -11,8 +12,12 @@ y = dataset['actions']
 r = dataset['rewards']
 q = dataset['true_q']
 
-pred_q_gpdq = np.load('GPDQ/pred_q.npy')
-pred_q_iql = np.load('IQL/pred_q.npy')
+pred_q_gpdq_rbf = np.load('GPDQ/pred_q.npy')
+pred_q_gpdq_matern = np.load('GPDQ_matern/pred_q.npy')
+# pred_q_iql = np.load('IQL/pred_q.npy')
+
+print('RMSE(RBF): ', np.mean(q - pred_q_gpdq_rbf))
+print('RMSE(MATERN): ', np.mean(q - pred_q_gpdq_matern))
 
 # Create subplots
 fig, axs = plt.subplots(2, 1, figsize=(10, 6), sharex=True)
@@ -25,8 +30,9 @@ axs[0].grid(True)
 axs[0].legend()
 
 # Plot negative sine wave
-axs[1].scatter(x[0:250], q, color='black', label='Ground Truth')
-# axs[1].scatter(x[0:250], pred_q_gpdq, color='blue', label='GPDQ (Ours)')
+axs[1].scatter(x[0:test_sample], q, color='black', label='Ground Truth')
+axs[1].scatter(x[0:test_sample], pred_q_gpdq_rbf, color='blue', label='GPDQ (RBF)')
+axs[1].scatter(x[0:test_sample], pred_q_gpdq_matern, color='red', label='GPDQ (MATERN)')
 # axs[1].scatter(x[0:250], pred_q_iql, color='red', label='IQL')
 # axs[1].scatter(x, r, color='red', label='Rewards')
 axs[1].set_title('State-Action Value Function (Q-value)')

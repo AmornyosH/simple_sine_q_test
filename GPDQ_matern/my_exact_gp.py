@@ -74,7 +74,8 @@ class myExactGP(torch.nn.Module):
         self.sigma_p = torch.tensor(1.0, dtype=torch.float32)  # Fixed signal variance to 2.00^2
         # self.ell_p = torch.tensor(1.0, dtype=torch.float32)
         # self.p = torch.tensor(1.0, dtype=torch.float32)
-        self.K = self.rbfKernel(X_1=self.x_train, X_2=self.x_train, noise=True)
+        # self.K = self.rbfKernel(X_1=self.x_train, X_2=self.x_train, noise=True)
+        self.K = self.maternKernel(X_1=self.x_train, X_2=self.x_train, noise=True)
         # self.K = self.svmKernel(X_1=self.x_train, X_2=self.x_train, noise=True)
 
     def rbfKernel(self, X_1, X_2, noise=False):
@@ -88,13 +89,32 @@ class myExactGP(torch.nn.Module):
         # period_kernel = torch.exp(-(2/(self.ell_p**2))*torch.sin(torch.pi*torch.cdist(X_1, X_2)/self.p)**2)
         # # Combine kernels
         # kernel = (self.sigma_p**2) * period_kernel * rbf_kernel
-
         if noise:
             # Noisy observation
             # if self.sigma_n < 0.05:
             #     self.sigma_n = 0.05
             kernel += ((self.sigma_n**2) * torch.eye(len(X_1)))
+        return kernel
 
+    def maternKernel(self, X_1, X_2, noise=False):
+        X_1 = torch.tensor(X_1, dtype=torch.float32) if not torch.is_tensor(X_1) else X_1
+        X_2 = torch.tensor(X_2, dtype=torch.float32) if not torch.is_tensor(X_2) else X_2
+        # kernel = (self.sigma_p**2) * torch.exp(-(torch.cdist(X_1, X_2)**2)/(2*self.ell**2))
+        # kernel = (self.sigma_p**2) * torch.exp(-(torch.cdist(X_1/self.ell, X_2/self.ell)**2)/2)
+
+        sqrt3_r = 1.732 * (torch.cdist(X_1, X_2)) / self.ell
+        kernel = (self.sigma_p**2) * (1 + sqrt3_r) * torch.exp(-sqrt3_r)
+
+        # rbf_kernel = torch.exp(-(torch.cdist(X_1/self.ell, X_2/self.ell)**2)/2)
+        # # Periodic kernel
+        # period_kernel = torch.exp(-(2/(self.ell_p**2))*torch.sin(torch.pi*torch.cdist(X_1, X_2)/self.p)**2)
+        # # Combine kernels
+        # kernel = (self.sigma_p**2) * period_kernel * rbf_kernel
+        if noise:
+            # Noisy observation
+            # if self.sigma_n < 0.05:
+            #     self.sigma_n = 0.05
+            kernel += ((self.sigma_n**2) * torch.eye(len(X_1)))
         return kernel
 
     def svmKernel(self, X_1, X_2, noise=False):
@@ -114,10 +134,12 @@ class myExactGP(torch.nn.Module):
     def predict(self, X_s):
         with torch.no_grad():
             x_test = X_s.view(-1, self.x_dim)
-            _k_s = self.rbfKernel(X_1=self.x_train, X_2=x_test, noise=False)
-            _k_ss = self.rbfKernel(X_1=x_test, X_2=x_test, noise=False)
+            # _k_s = self.rbfKernel(X_1=self.x_train, X_2=x_test, noise=False)
+            # _k_ss = self.rbfKernel(X_1=x_test, X_2=x_test, noise=False)
             # _k_s = self.svmKernel(X_1=self.x_train, X_2=x_test, noise=False)
             # _k_ss = self.svmKernel(X_1=x_test, X_2=x_test, noise=False)
+            _k_s = self.maternKernel(X_1=self.x_train, X_2=x_test, noise=False)
+            _k_ss = self.maternKernel(X_1=x_test, X_2=x_test, noise=False)
 
             # # We found that deriving mean and variance this way, provide better results.
             # _mean = _k_s.T @ self.K_inv @ self.y_train
@@ -146,8 +168,9 @@ class myExactGP(torch.nn.Module):
                 _batch_y = self.y_train_full[g*_batch_size:_batch_size+(g*_batch_size)]
 
                 _optimizer.zero_grad()
-                _k = self.rbfKernel(X_1=_batch_x, X_2=_batch_x, noise=True)
+                # _k = self.rbfKernel(X_1=_batch_x, X_2=_batch_x, noise=True)
                 # _k = self.svmKernel(X_1=_batch_x, X_2=_batch_x, noise=True)
+                _k = self.maternKernel(X_1=_batch_x, X_2=_batch_x, noise=True)
 
                 _L = torch.linalg.cholesky(_k, upper=False)
                 _alpha = torch.linalg.solve_triangular(_L.T, torch.linalg.solve_triangular(_L, _batch_y, upper=False), upper=True)
@@ -172,7 +195,8 @@ class myExactGP(torch.nn.Module):
 
         self.recordSaving(path=self.training_record_path)
         
-        self.K = self.rbfKernel(X_1=self.x_train, X_2=self.x_train, noise=True)
+        # self.K = self.rbfKernel(X_1=self.x_train, X_2=self.x_train, noise=True)
+        self.K = self.maternKernel(X_1=self.x_train, X_2=self.x_train, noise=True)
         # self.K = self.svmKernel(X_1=self.x_train, X_2=self.x_train, noise=True)
         # self.K_inv = torch.linalg.inv(self.K)
         self.eval()  # Set to evaluation mode after the training is finished.

@@ -2,6 +2,8 @@ import os
 import torch
 from time import time
 
+TORCH_SQRT_3 = torch.math.sqrt(torch.tensor(3.0, dtype=torch.float32))
+
 class myExactGP(torch.nn.Module):
     def __init__(self, params_dict:dict, dataset:dict, parent_alg:str, cuda:bool=False):
         super().__init__()
@@ -31,9 +33,11 @@ class myExactGP(torch.nn.Module):
         if _ans_1 == 'n' or _ans_1=='N' or _ans_1=='No' or _ans_1=='NO':
             print('========== Create new GP record and models!')
             self.mll_append = []  # Loss storage
-            # Create hyperparameters
-            self.sigma_n = torch.nn.Parameter(torch.tensor(1.0, dtype=torch.float32), requires_grad=True)
-            self.ell = torch.nn.Parameter(torch.ones(size=[1, self.x_dim], dtype=torch.float32), requires_grad=True)
+            # # Create hyperparameters
+            # self.sigma_n = torch.nn.Parameter(torch.tensor(1.0, dtype=torch.float32), requires_grad=True)
+            # self.ell = torch.nn.Parameter(torch.ones(size=[1, self.x_dim], dtype=torch.float32), requires_grad=True)
+            self.sigma_n = 0
+            self.ell = 0
 
             # # hyperparameter for svm kernel
             # self.num_mixtures = self.x_dim//2
@@ -99,17 +103,10 @@ class myExactGP(torch.nn.Module):
     def maternKernel(self, X_1, X_2, noise=False):
         X_1 = torch.tensor(X_1, dtype=torch.float32) if not torch.is_tensor(X_1) else X_1
         X_2 = torch.tensor(X_2, dtype=torch.float32) if not torch.is_tensor(X_2) else X_2
-        # kernel = (self.sigma_p**2) * torch.exp(-(torch.cdist(X_1, X_2)**2)/(2*self.ell**2))
-        # kernel = (self.sigma_p**2) * torch.exp(-(torch.cdist(X_1/self.ell, X_2/self.ell)**2)/2)
-
-        sqrt3_r = 1.732 * (torch.cdist(X_1, X_2)) / self.ell
+        r_ard = torch.cdist(X_1/self.ell, X_2/self.ell)
+        sqrt3_r = TORCH_SQRT_3 * (r_ard)
         kernel = (self.sigma_p**2) * (1 + sqrt3_r) * torch.exp(-sqrt3_r)
 
-        # rbf_kernel = torch.exp(-(torch.cdist(X_1/self.ell, X_2/self.ell)**2)/2)
-        # # Periodic kernel
-        # period_kernel = torch.exp(-(2/(self.ell_p**2))*torch.sin(torch.pi*torch.cdist(X_1, X_2)/self.p)**2)
-        # # Combine kernels
-        # kernel = (self.sigma_p**2) * period_kernel * rbf_kernel
         if noise:
             # Noisy observation
             # if self.sigma_n < 0.05:

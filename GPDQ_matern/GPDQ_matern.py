@@ -12,7 +12,7 @@ if CUDA:
 # ============================ Pytorch Related ============================
 
 # ================================== Others ==================================
-from GPDQ_matern import my_exact_gp, my_svgp
+from GPDQ_matern import my_exact_gp
 from my_utilities import my_utils, my_NN
 from time import time
 import numpy as np
@@ -49,8 +49,22 @@ class GaussianProcessDiffusionQlearning:
 
         # Initialise Paths
         self.training_record_path = '{:s}/training_records/{:s}_{:s}_training_record'.format(self.ALG, self.ALG, self.ENV_CONFIG)
-        self.evaluation_path = '{:s}/norm_eval_rewards_append'.format(self.ALG)
+        self.evaluation_path = '{:s}/evaluation_data'.format(self.ALG)
         self.q_eval_path = '{:s}/pred_q'.format(self.ALG)
+
+        # ======================================= Create GP model. =======================================
+        # Uncomment out the selected gp model type...
+        self.gp_model_type = 'exact'
+        # self.gp_model_type = 'sparse'
+        # best_dataset = self.bestTrajExtraction(dataset=dataset) if dataset is not None else None
+        # best_dataset = self.multiBestTrajExtraction(dataset=dataset, max_episode_steps=1000, top_k=10)
+        best_dataset = dataset
+
+        if self.gp_model_type == 'exact':
+            self.gp_model = my_exact_gp.myExactGP(params_dict=params_dict, dataset=best_dataset, cuda=CUDA,
+                                                  parent_alg=self.ALG)
+        else:
+            print('No gp model type. Please try "exact" or "sparse".')
 
         # Initialise neural networks
         self.EPSILON_INPUT_DIM = self.STATE_DIM + self.ACTION_DIM + self.POS_DIM
@@ -80,15 +94,15 @@ class GaussianProcessDiffusionQlearning:
             self.q_1_tar = self.q_1
             self.q_2_tar = self.q_2
             
-            # # Load pre-trained diffusion models
-            # self.beh_training_record = 0
-            # self.epsilon_beh = my_NN.MLP(input_dim=self.EPSILON_INPUT_DIM, output_dim=self.ACTION_DIM)
-            # self.epsilon_beh_loss_append = []
+            # Load pre-trained diffusion models
+            self.beh_training_record = 0
+            self.epsilon_beh = my_NN.MLP(input_dim=self.EPSILON_INPUT_DIM, output_dim=self.ACTION_DIM)
+            self.epsilon_beh_loss_append = []
 
-            _loaded_training_record = torch.load(self.training_record_path, map_location=torch.device('cpu' if not CUDA else 'cuda'), weights_only=False)
-            self.beh_training_record = _loaded_training_record['beh_training_record']
-            self.epsilon_beh = _loaded_training_record['epsilon_beh']
-            self.epsilon_beh_loss_append = _loaded_training_record['epsilon_beh_loss_append']
+            # _loaded_training_record = torch.load(self.training_record_path, map_location=torch.device('cpu' if not CUDA else 'cuda'), weights_only=False)
+            # self.beh_training_record = _loaded_training_record['beh_training_record']
+            # self.epsilon_beh = _loaded_training_record['epsilon_beh']
+            # self.epsilon_beh_loss_append = _loaded_training_record['epsilon_beh_loss_append']
 
         # ==================== Load Previous Record and Models ======================
         elif _ans_1 == 'y' or _ans_1=='Y' or _ans_1=='Yes' or _ans_1=='YES':
@@ -111,19 +125,6 @@ class GaussianProcessDiffusionQlearning:
             self.q_1.cuda()
             self.q_2.cuda()
 
-        # ======================================= Create GP model. =======================================
-        # Uncomment out the selected gp model type...
-        self.gp_model_type = 'exact'
-        # self.gp_model_type = 'sparse'
-        # best_dataset = self.bestTrajExtraction(dataset=dataset) if dataset is not None else None
-        # best_dataset = self.multiBestTrajExtraction(dataset=dataset, max_episode_steps=1000, top_k=10)
-        best_dataset = dataset
-        
-        if self.gp_model_type == 'exact':
-            self.gp_model = my_exact_gp.myExactGP(params_dict=params_dict, dataset=best_dataset, cuda=CUDA, parent_alg=self.ALG)
-        else:
-            print('No gp model type. Please try "exact" or "sparse".')
-        
         # self.gp_model.y_train = self.getAlteredObservation(self.gp_model.x_train)
 
     # Training Record Loading Method
@@ -145,6 +146,13 @@ class GaussianProcessDiffusionQlearning:
         self.epsilon_beh_loss_append = _loaded_training_record['epsilon_beh_loss_append']
         self.q_1_loss_append = _loaded_training_record['q_1_loss_append']
         self.q_2_loss_append = _loaded_training_record['q_2_loss_append']
+        _gp_state_dict = _loaded_training_record['gp_state_dict']
+        self.gp_model.sigma_n = torch.nn.Parameter(_gp_state_dict['sigma_n'], requires_grad=True)
+        self.gp_model.ell = torch.nn.Parameter(_gp_state_dict['ell'], requires_grad=True)
+        self.gp_model.mll_append = _loaded_training_record['gp_loss_append']
+        self.gp_model.x_train = _loaded_training_record['gp_x_train']
+        self.gp_model.y_train = _loaded_training_record['gp_y_train']
+        self.gp_model.K = self.gp_model.maternKernel(self.gp_model.x_train, self.gp_model.x_train, noise=True)
         print('========== ({:s}) Training Record: '.format(self.ALG), self.training_record, ' epoch.', 
               ', Gradient steps: ', self.training_record*(self.NUM_SAMPLE//self.MINIBATCH_SIZE))
 
@@ -503,23 +511,11 @@ class GaussianProcessDiffusionQlearning:
             # return batch_reward_tensor + (_GAMMA * self.q_2(inputs))
             return batch_reward_tensor + (_GAMMA * self.q_1_tar(inputs))
 
-        # Get Expected Q value Method (local)
-        def _getExpectedQValues(inputs):
-            return self.q_1_tar(inputs)
-
         # Q network Training Method (local)
         def _trainQ1Network(inputs, y_true):
             y_pred = self.q_1(inputs)
             _q_1_loss = torch.mean(torch.square(y_true - y_pred))
             return _q_1_loss
-
-        # V network Training Method (local)
-        def _trainVNetwork(inputs, y_true):
-            # Compute gradients
-            y_pred_tensor = self.q_2(inputs)
-            _q_2_loss = torch.mean(torch.square(y_true-y_pred_tensor))
-            # _q_2_loss = torch.sum(torch.square(y_true-y_pred_tensor) * torch.exp(_batch_dist.log_prob(_batch_pred_action)))
-            return _q_2_loss
 
         # Diffusion Models Training Method (local)
         def _trainDiffusionBeh(inputs, y_true):
@@ -541,12 +537,6 @@ class GaussianProcessDiffusionQlearning:
             for key in q_1_state_dict:
                 q_1_tar_state_dict[key] = q_1_state_dict[key]*_TAU + q_1_tar_state_dict[key]*(1-_TAU)
             self.q_1_tar.load_state_dict(q_1_tar_state_dict)
-
-            # q_2_tar_state_dict = self.q_2_tar.state_dict()
-            # q_2_state_dict = self.q_2.state_dict()
-            # for key in q_2_state_dict:
-            #     q_2_tar_state_dict[key] = q_2_state_dict[key]*_TAU + q_2_tar_state_dict[key]*(1-_TAU)
-            # self.q_2_tar.load_state_dict(q_2_tar_state_dict)
 
         # Declare Constants
         _GAMMA = 0.99  # Discount factor.
@@ -618,30 +608,19 @@ class GaussianProcessDiffusionQlearning:
                 # Prepare data for q learning
                 _batch_next_action = self.predict(state=batch_next_state_tensor, size=_batch_size, guide=True, dec_step=False).view(-1, self.ACTION_DIM)
                 y_true_1 = _getExpectedCumulativeReturn(inputs=torch.concat([batch_next_state_tensor, _batch_next_action], dim=1))
-
-                # _batch_pred_action = self.predict(state=batch_state_tensor, size=_batch_size, guide=True, dec_step=False).view(-1, self.ACTION_DIM)
-                # y_true_1 = _getExpectedCumulativeReturn(inputs=batch_next_state_tensor)
-                
-                # y_true_2 = _getExpectedQValues(inputs=torch.concat([batch_state_tensor, _batch_pred_action], dim=1))
                 q_1_loss = _trainQ1Network(inputs=torch.concat([batch_state_tensor, batch_action_tensor], dim=1), y_true=y_true_1) # State-Action network (Q)
                 q_1_loss_accum += q_1_loss.tolist()
-                # q_2_loss = _trainVNetwork(inputs=batch_state_tensor, y_true=y_true_2) # State-Action network (Q)
-                # q_2_loss_accum += q_2_loss.tolist()
-
                 self.q_1_optimizer.zero_grad()
-                # self.q_2_optimizer.zero_grad()
                 q_1_loss.backward(retain_graph=True)
-                # q_2_loss.backward(retain_graph=True)
                 self.q_1_optimizer.step()
-                # self.q_2_optimizer.step()s
 
-                # # Prepare data for diffusion learning
-                # rand_t = torch.randint(low=0, high=self.DIFFU_STEPS, size=[_batch_size])
-                # encode_t_tensor = self.POS_EMB[rand_t]  # Retrieve
-                # epsilon_tensor = torch.normal(mean=self.DIFFU_MEAN, std=self.DIFFU_STD, size=[_batch_size, self.ACTION_DIM])
-                # forward_action_tensor = self.forwardProcess(data=batch_action_tensor, epsilon=epsilon_tensor, step=rand_t)
-                # diffu_loss, _ = _trainDiffusionBeh(inputs=torch.concat([batch_state_tensor, forward_action_tensor, encode_t_tensor], dim=1), y_true=epsilon_tensor)
-                # diffu_loss_accum += diffu_loss.tolist()
+                # Prepare data for diffusion learning
+                rand_t = torch.randint(low=0, high=self.DIFFU_STEPS, size=[_batch_size])
+                encode_t_tensor = self.POS_EMB[rand_t]  # Retrieve
+                epsilon_tensor = torch.normal(mean=self.DIFFU_MEAN, std=self.DIFFU_STD, size=[_batch_size, self.ACTION_DIM])
+                forward_action_tensor = self.forwardProcess(data=batch_action_tensor, epsilon=epsilon_tensor, step=rand_t)
+                diffu_loss, _ = _trainDiffusionBeh(inputs=torch.concat([batch_state_tensor, forward_action_tensor, encode_t_tensor], dim=1), y_true=epsilon_tensor)
+                diffu_loss_accum += diffu_loss.tolist()
 
                 # Update target networks
                 _updateTargetNetworks()
@@ -660,7 +639,7 @@ class GaussianProcessDiffusionQlearning:
             # Print the status.
             print('Epoch: ', self.training_record,
                   ', Gradient_step: ', int(self.training_record*_num_gradient_step), 
-                #   ', Diffu_loss: ', round(diffu_loss_accum/_num_gradient_step, 4),
+                  ', Diffu_loss: ', round(diffu_loss_accum/_num_gradient_step, 4),
                   ', Q1_loss: ', round(q_1_loss_accum/_num_gradient_step, 4),
                   ', GP_loss: ', round(_gp_loss, 4),
                   ', Time/Epoch: ', round(time()-start_time, 4))
@@ -706,4 +685,8 @@ class GaussianProcessDiffusionQlearning:
                     'q_2_tar': self.q_2_tar,
                     'epsilon_beh_loss_append': self.epsilon_beh_loss_append, 
                     'q_1_loss_append': self.q_1_loss_append, 
-                    'q_2_loss_append': self.q_2_loss_append}, path)
+                    'q_2_loss_append': self.q_2_loss_append,
+                    'gp_state_dict': self.gp_model.state_dict(),
+                    'gp_loss_append': self.gp_model.mll_append,
+                    'gp_x_train': self.gp_model.x_train,
+                    'gp_y_train': self.gp_model.y_train}, path)

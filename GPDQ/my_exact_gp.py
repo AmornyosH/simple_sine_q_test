@@ -33,6 +33,7 @@ class myExactGP(torch.nn.Module):
             self.mll_append = []  # Loss storage
             # Create hyperparameters
             self.sigma_n = torch.nn.Parameter(torch.tensor(1.0, dtype=torch.float32), requires_grad=True)
+            # self.sigma_n = torch.nn.Parameter(torch.ones(size=[1, params_dict['diffusion_step']], dtype=torch.float32), requires_grad=True)
             self.ell = torch.nn.Parameter(torch.ones(size=[1, self.x_dim], dtype=torch.float32), requires_grad=True)
 
             # # hyperparameter for svm kernel
@@ -53,7 +54,8 @@ class myExactGP(torch.nn.Module):
             self.mll_append = _training_records['loss_append']  # Loss append
             _state_dict = _training_records['state_dict']
             # print(_state_dict)
-            self.sigma_n = torch.nn.Parameter(_state_dict['sigma_n'], requires_grad=True)
+            # self.sigma_n = torch.nn.Parameter(_state_dict['sigma_n'], requires_grad=True)
+            self.sigma_n = _state_dict['sigma_n']
             self.ell = torch.nn.Parameter(_state_dict['ell'], requires_grad=True)
 
             # # hyperparameter for svm kernel
@@ -91,8 +93,7 @@ class myExactGP(torch.nn.Module):
 
         if noise:
             # Noisy observation
-            # if self.sigma_n < 0.05:
-            #     self.sigma_n = 0.05
+            # self.sigma_n = torch.clip(self.sigma_n, min=self.sigma_n_min[0])
             kernel += ((self.sigma_n**2) * torch.eye(len(X_1)))
 
         return kernel

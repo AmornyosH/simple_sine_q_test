@@ -49,7 +49,7 @@ class GaussianProcessDiffusionQlearning:
 
         # Initialise Paths
         self.training_record_path = '{:s}/training_records/{:s}_{:s}_training_record'.format(self.ALG, self.ALG, self.ENV_CONFIG)
-        self.evaluation_path = '{:s}/norm_eval_rewards_append'.format(self.ALG)
+        self.evaluation_path = '{:s}/evaluation_data'.format(self.ALG)
         self.q_eval_path = '{:s}/pred_q'.format(self.ALG)
 
         # Initialise neural networks
@@ -80,15 +80,15 @@ class GaussianProcessDiffusionQlearning:
             self.q_1_tar = self.q_1
             self.q_2_tar = self.q_2
             
-            # Load pre-trained diffusion models
-            self.beh_training_record = 0
-            self.epsilon_beh = my_NN.MLP(input_dim=self.EPSILON_INPUT_DIM, output_dim=self.ACTION_DIM)
-            self.epsilon_beh_loss_append = []
+            # # Load pre-trained diffusion models
+            # self.beh_training_record = 0
+            # self.epsilon_beh = my_NN.MLP(input_dim=self.EPSILON_INPUT_DIM, output_dim=self.ACTION_DIM)
+            # self.epsilon_beh_loss_append = []
 
-            # _loaded_training_record = torch.load(self.training_record_path, map_location=torch.device('cpu' if not CUDA else 'cuda'), weights_only=False)
-            # self.beh_training_record = _loaded_training_record['beh_training_record']
-            # self.epsilon_beh = _loaded_training_record['epsilon_beh']
-            # self.epsilon_beh_loss_append = _loaded_training_record['epsilon_beh_loss_append']
+            _loaded_training_record = torch.load(self.training_record_path, map_location=torch.device('cpu' if not CUDA else 'cuda'), weights_only=False)
+            self.beh_training_record = _loaded_training_record['beh_training_record']
+            self.epsilon_beh = _loaded_training_record['epsilon_beh']
+            self.epsilon_beh_loss_append = _loaded_training_record['epsilon_beh_loss_append']
 
         # ==================== Load Previous Record and Models ======================
         elif _ans_1 == 'y' or _ans_1=='Y' or _ans_1=='Yes' or _ans_1=='YES':
@@ -430,12 +430,12 @@ class GaussianProcessDiffusionQlearning:
         _diffu_steps = self.DIFFU_STEPS if not dec_step else self.DEC_DIFFU_STEPS
         _mu_r = []
         _var_r = []
-        # Predict guidance params
-        if guide:
-            _mu_r, _var_r = self.predictGP(x_test=inputs)
-            self.mu_r = _mu_r
-            self.mu_r = torch.clip(input=_mu_r, min=self.MIN_DIFFU_SPACE, max=self.MAX_DIFFU_SPACE)
-            self.var_r = _var_r
+        # # Predict guidance params
+        # if guide:
+        #     _mu_r, _var_r = self.predictGP(x_test=inputs)
+        #     self.mu_r = _mu_r
+        #     self.mu_r = torch.clip(input=_mu_r, min=self.MIN_DIFFU_SPACE, max=self.MAX_DIFFU_SPACE)
+        #     self.var_r = _var_r
 
         # Start reverse processes
         for i in range(_diffu_steps): 
@@ -450,6 +450,11 @@ class GaussianProcessDiffusionQlearning:
                        (self.beta[rev_pos] * epsilon_theta_t / torch.sqrt(self.alpha[rev_pos]*(1-self.alpha_bar[rev_pos])))
             # Guided term
             if guide:
+                # self.gp_model.sigma_n = self.beta[rev_pos] / (1 - self.beta[rev_pos])
+                _mu_r, _var_r = self.predictGP(x_test=inputs, diffu_step=rev_pos)
+                self.mu_r = _mu_r
+                self.mu_r = torch.clip(input=_mu_r, min=self.MIN_DIFFU_SPACE, max=self.MAX_DIFFU_SPACE)
+                self.var_r = _var_r
                 _cov_dp = self.beta[rev_pos] * torch.eye(size) if i != (self.DIFFU_STEPS-1) else 0. * torch.eye(size)
                 _cov_gp = torch.clip(self.var_r, min=self.beta[rev_pos]) * torch.eye(size, dtype=torch.float32)
                 _inv_cov_gp = torch.linalg.inv(_cov_gp)
@@ -689,8 +694,8 @@ class GaussianProcessDiffusionQlearning:
 
     # ==================================== GP model sections start ====================================
     # Prediction Method (mean, var)
-    def predictGP(self, x_test):
-        _mean, _var = self.gp_model.predict(X_s=x_test)
+    def predictGP(self, x_test, diffu_step):
+        _mean, _var = self.gp_model.predict(X_s=x_test, diffu_step=diffu_step)
         return _mean, _var
     # ===================================== GP model sections end =====================================
     # Training Record Saving Method

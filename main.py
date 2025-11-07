@@ -5,12 +5,18 @@ import torch
 import argparse
 import os
 
-from GPDQ.GPDQ import GaussianProcessDiffusionQlearning as GPDQ_A
-from GPDQ_matern.GPDQ_matern import GaussianProcessDiffusionQlearning
+from GPDQ_rbf.GPDQ_rbf import GaussianProcessDiffusionQlearning
+# from GPDQ_matern2.GPDQ_matern2 import GaussianProcessDiffusionQlearning
+# from GPDQ_matern.GPDQ_matern import GaussianProcessDiffusionQlearning
+# from GPDQ_matern52.GPDQ_matern52 import GaussianProcessDiffusionQlearning
+# from GPDQ_Resnet.GPDQ_Resnet import GaussianProcessDiffusionQlearning
+# from GPDQ_dkl.GPDQ_dkl import GaussianProcessDiffusionQlearning
+# from GPDQ_NZM_matern.GPDQ_NZM_matern import GaussianProcessDiffusionQlearning
 from IQL.IQL import MyCustomIQL
+from DQL.DQL import MyCustomDQL
 
 def addArguments(parser):
-    parser.add_argument('--env', default='sharp_sine', help='Environment: ["simple_sine", "sharp_sine"]')
+    parser.add_argument('--env', default='simple_sine', help='Environment: ["simple_sine", "sharp_sine"]')
     parser.add_argument('--alg', default="GPDQ", help='Algorithm: ["GPDQ"], default:GPDQ')
     parser.add_argument('--task', default='testing', help='Task: ["training", "testing"], default:training')
     parser.add_argument('--gradient_step', default=50000, help='Gradient Step, default:1000000')
@@ -21,24 +27,10 @@ def setGlobalSeed(seed:int):
     torch.manual_seed(seed)
 
 def getParamsDict(env):
-    return {'simple_sine' : {'environment': 'simple_sine', 'horizon': (4*np.pi//0.05)//2, 'gp_num_sample': 250, 'gp_num_inducing': 25, 'gp_batch_size': 25, 'state_dim': 1, 'action_dim': 1, 'normalise_reward': False, 'diffusion_step': 50, 'task': TASK}, 
-            'sharp_sine' : {'environment': 'sharp_sine', 'horizon': (4*np.pi//0.05)//2, 'gp_num_sample': 314, 'gp_num_inducing': 25, 'gp_batch_size': 25, 'state_dim': 1, 'action_dim': 1, 'normalise_reward': False, 'diffusion_step': 50, 'task': TASK}}
-
+    return {'simple_sine' : {'environment': 'simple_sine', 'horizon': int(4*np.pi//0.02), 'gp_num_sample': int(4*np.pi//0.02), 'gp_num_inducing': 25, 'gp_batch_size': 25, 'state_dim': 1, 'action_dim': 1, 'normalise_reward': False, 'diffusion_step': 50, 'task': TASK}, 
+            'sharp_sine' : {'environment': 'sharp_sine', 'horizon': 628, 'gp_num_sample':314, 'gp_num_inducing': 25, 'gp_batch_size': 25, 'state_dim': 1, 'action_dim': 1, 'normalise_reward': False, 'diffusion_step': 50, 'task': TASK}}
 
 def createDataset():
-    # Piecewise waveform function
-    def non_smooth_function(x):
-        return np.piecewise(x,
-                            [x < 3, (x >= 3) & (x < 6), x >= 6],
-                            [lambda x: np.sin(2 * x),
-                             lambda x: np.sin(10 * x),
-                             lambda x: np.sin(2 * x + 5)])
-        # return np.piecewise(x,
-        #                     [x < 5, (x >= 5) & (x < 10), (x >= 10) & (x < 15), x >= 15],
-        #                     [lambda x: 0,
-        #                      lambda x: 1,
-        #                      lambda x: -1,
-        #                      lambda x: 0.5])
 
     def fluctuate_function(x):
         if x < 0.5:
@@ -60,7 +52,7 @@ def createDataset():
         for i in range(len(_q)):
             for j in range(len(_q)):
                 k = i
-                if j + k >= len(_q):
+                if j + k >= params_dict[args.env]['horizon']:
                     k = 0
                 # _q[i] += ((_gamma) ** j) * (np.sin(x_test[j+k]) + non_smooth_function(x_test[j+k]))
                 _q[i] += ((_gamma) ** j) * np.abs(r_test[j+k])
@@ -68,18 +60,30 @@ def createDataset():
 
     _x = []
     for _ in range(100):
-        _x.append(np.arange(start=0., stop=2*np.pi, step=0.02))
+        _x.append(np.arange(start=0., stop=4*np.pi, step=0.02))
     _x = np.hstack(_x)
     _y = np.zeros([len(_x)])
     _r = np.zeros([len(_y)])
 
     for i in range(len(_y)):
         if args.env == 'simple_sine':
+            if _x[i] < 1.5*np.pi:
+                _mul = 1
+                _mux = 1
+            elif _x[i] >= 1.5*np.pi and _x[i] < 2.75*np.pi:
+                _mul = 1
+                _mux = 1
+            elif _x[i] >= 2.75*np.pi and _x[i] < 3.5*np.pi:
+                _mul = 1
+                _mux = 1
+            else:
+                _mul = 1
+                _mux = 1
             if i <= len(_y) // 2:
-                _y[i] = np.sin(_x[i]) + np.random.normal(0, 0.05, size=1)
+                _y[i] = _mux * np.sin(_mul*_x[i]) + np.random.normal(0, 0.05, size=1)
                 # _y[i] = non_smooth_function(_x[i]) + np.random.normal(0, 0.05, size=1)
             else:
-                _y[i] = np.sin(_x[i]) + np.random.normal(0, 0.05, size=1)
+                _y[i] = _mux * (-np.sin(_mul*_x[i]) + np.random.normal(0, 0.05, size=1))
         elif args.env == 'sharp_sine':
             if i <= len(_y) // 2:
                 _y[i] = fluctuate_function(_x[i]) + np.random.normal(0, 0.05, size=1)
@@ -91,12 +95,13 @@ def createDataset():
             _y[i] = np.clip(_y[i], -1, 1)
 
     for j in range(len(_r)):
-        if _x[j] <= np.pi:
+        if _x[j] <= np.pi or _x[j] >= 3 * np.pi:
             _r[j] = _y[j]
         else:
             _r[j] = -_y[j]
 
-    _q = _getQvalue(_x[0:314], _r[0:314])
+    _q = _getQvalue(_x[0:628], _r[0:628])
+    # _q = _getQvalue(_x[0:314], _r[0:314])
 
     _x_p_1 = np.zeros([len(_x)])
     _x_p_1[0:-2] = _x[1:-1]
@@ -121,6 +126,7 @@ args = parser.parse_args()
 ENV_NAME = args.env
 TASK = args.task
 EXPERT_PATH = 'datasets/dataset_{}.npz'.format(ENV_NAME)
+params_dict = getParamsDict(env=ENV_NAME)
 
 if not os.path.isfile(EXPERT_PATH):
     dataset = createDataset()
@@ -130,16 +136,20 @@ x = dataset['observations']
 y = dataset['actions']
 r = dataset['rewards']
 q = dataset['true_q']
-params_dict = getParamsDict(env=ENV_NAME)
+
 
 if args.alg == 'GPDQ':
     agent = GaussianProcessDiffusionQlearning(params_dict=params_dict[args.env], dataset=dataset, ft=False)
+    # test_sample = agent.gp_model.num_sample
+    test_sample = params_dict[args.env]['horizon']
+    # test_sample = 500
+    # dp_test_sample = 314
 elif args.alg == 'IQL':
     agent = MyCustomIQL(params_dict=params_dict[args.env], dataset=dataset, ft=False)
-
-# compared_agent = GPDQ_A(params_dict=params_dict[args.env], dataset=dataset, ft=False)
-
-test_sample = agent.gp_model.num_sample
+    test_sample = params_dict[args.env]['horizon']
+elif args.alg == 'DQL':
+    agent = MyCustomDQL(params_dict=params_dict[args.env], dataset=dataset, ft=False)
+    test_sample = params_dict[args.env]['horizon']
 
 # ========== Training (Offline)
 EPOCH = int(args.gradient_step) / (agent.NUM_SAMPLE//agent.MINIBATCH_SIZE)
@@ -153,37 +163,36 @@ if args.task == 'training':
 
     print('Training is done!')
     # pred_y = agent.predict(state=x, size=len(x), guide=False).detach().numpy()
-    pred_q = agent.q_1(torch.concat([torch.tensor(x[0:test_sample], dtype=torch.float32),
-                                     torch.tensor(y[0:test_sample], dtype=torch.float32)], dim=1)).tolist()
+    pred_q = agent.q_1(torch.concat([torch.tensor(x[0:agent.gp_model.num_sample], dtype=torch.float32),
+                                     torch.tensor(y[0:agent.gp_model.num_sample], dtype=torch.float32)], dim=1)).tolist()
 if args.task == 'testing':
-    pred_y = agent.predict(state=x[0:test_sample], size=test_sample, guide=True).cpu().detach().numpy()
-    pred_g_mu, pred_g_var = agent.predictGP(torch.tensor(x[0:test_sample], dtype=torch.float32).view(-1, 1))
-    pred_g_mu = np.reshape(pred_g_mu.tolist(), -1)
-    pred_g_var = np.sqrt(np.diagonal(pred_g_var.tolist()))
+    if agent.ALG == 'IQL':
+        pred_y = np.abs(y[0:test_sample])
+        for k in range(len(x[0:test_sample])):
+            if x[k] > np.pi and x[k] < 3*np.pi:
+                pred_y[k] = -pred_y[k]
+        pred_g_mu = np.zeros([test_sample], dtype=float)
+        pred_g_var = np.ones([test_sample], dtype=float)
+        k = np.identity(n=params_dict[args.env]['gp_num_sample'])
+    elif agent.ALG == 'DQL':
+        pred_y = agent.predict(state=x[0:test_sample], size=test_sample, guide=True).cpu().detach().numpy()
+        pred_g_mu = np.zeros([test_sample], dtype=float)
+        pred_g_var = np.ones([test_sample], dtype=float)
+        k = np.identity(n=params_dict[args.env]['gp_num_sample'])
+    else:
+        pred_y = agent.predict(state=x[0:test_sample], size=test_sample, guide=True).cpu().detach().numpy()
+        pred_g_mu, pred_g_var = agent.predictGP(torch.tensor(x[0:test_sample], dtype=torch.float32).view(-1, 1))
+        pred_g_mu = np.reshape(pred_g_mu.tolist(), -1)
+        pred_g_var = pred_g_var.detach().cpu().numpy()
+        k = agent.gp_model.rbfKernel(X_1=agent.gp_model.x_train, X_2=x[0:test_sample], noise=False).cpu().detach().numpy()
+        # pred_g_var = pred_g_var
+
     pred_q = agent.q_1(torch.concat([torch.tensor(x[0:test_sample], dtype=torch.float32),
                                      torch.tensor(pred_y, dtype=torch.float32)], dim=1)).tolist()
-    np.save(agent.q_eval_path, pred_q)
-
-# Create subplots
-fig, axs = plt.subplots(2, 1, figsize=(10, 6), sharex=True)
-# Plot sine wave
-axs[0].scatter(x, y, color='blue', label='Ground Truth')
-axs[0].scatter(x[0:test_sample], pred_y, color='purple', label='GPDQ-GPDP')
-axs[0].plot(x[0:test_sample], pred_g_mu, color='green', label='GPDQ-GP')
-axs[0].fill_between(x[0:test_sample].flatten(), pred_g_mu + pred_g_var, pred_g_mu - pred_g_var, alpha=0.5, color='green')
-axs[0].set_title('Sine Wave')
-axs[0].grid(True)
-axs[0].legend()
-# Plot negative sine wave
-axs[1].scatter(x[0:test_sample], q, color='black', label='Ground Truth (Q)')
-# axs[1].scatter(x, r, color='blue', label='Ground Truth (R)')
-axs[1].scatter(x[0:test_sample], pred_q, color='blue', label='Q-GPDQ')
-# axs[1].scatter(x, r, color='red', label='Rewards')
-axs[1].set_title('State-Action Value Function (Q-value)')
-axs[1].grid(True)
-axs[1].legend()
-
-# Label x-axis only once
-plt.xlabel('x')
-plt.tight_layout()
-plt.show()
+    # np.save(agent.q_eval_path, pred_q)
+    np.savez(agent.evaluation_path,
+             pred_y,         # arr_0
+             pred_g_mu,      # arr_1
+             pred_g_var,     # arr_2
+             pred_q,         # arr_3
+             k)           # arr_4

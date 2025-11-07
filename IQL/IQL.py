@@ -38,7 +38,7 @@ class MyCustomIQL:
         self.training_record_path = 'IQL/training_records/{:s}_{:s}_training_record'.format(self.ALG, self.ENV_CONFIG)
         self.training_record_2m_path = 'IQL/training_records/{:s}_{:s}_training_record_2m'.format(self.ALG, self.ENV_CONFIG)
         self.training_checkpoint_path = 'IQL/training_records/{:s}_{:s}_checkpoint'.format(self.ALG, self.ENV_CONFIG)
-        self.evaluation_path = 'IQL/norm_eval_rewards_append'
+        self.evaluation_path = 'IQL/evaluation_data'
         self.q_eval_path = '{:s}/pred_q'.format(self.ALG)
 
         # Initialise neural networks

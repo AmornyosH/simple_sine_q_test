@@ -5,13 +5,13 @@ import torch
 import argparse
 import os
 
-from GPDQ_rbf.GPDQ_rbf import GaussianProcessDiffusionQlearning
+# from GPDQ_rbf.GPDQ_rbf import GaussianProcessDiffusionQlearning
 # from GPDQ_matern2.GPDQ_matern2 import GaussianProcessDiffusionQlearning
 # from GPDQ_matern.GPDQ_matern import GaussianProcessDiffusionQlearning
 # from GPDQ_matern52.GPDQ_matern52 import GaussianProcessDiffusionQlearning
 # from GPDQ_Resnet.GPDQ_Resnet import GaussianProcessDiffusionQlearning
 # from GPDQ_dkl.GPDQ_dkl import GaussianProcessDiffusionQlearning
-# from GPDQ_NZM_matern.GPDQ_NZM_matern import GaussianProcessDiffusionQlearning
+from GPDQ_NZM_matern.GPDQ_NZM_matern import GaussianProcessDiffusionQlearning
 from IQL.IQL import MyCustomIQL
 from DQL.DQL import MyCustomDQL
 
@@ -27,7 +27,7 @@ def setGlobalSeed(seed:int):
     torch.manual_seed(seed)
 
 def getParamsDict(env):
-    return {'simple_sine' : {'environment': 'simple_sine', 'horizon': int(4*np.pi//0.02), 'gp_num_sample': int(4*np.pi//0.02), 'gp_num_inducing': 25, 'gp_batch_size': 25, 'state_dim': 1, 'action_dim': 1, 'normalise_reward': False, 'diffusion_step': 50, 'task': TASK}, 
+    return {'simple_sine' : {'environment': 'simple_sine', 'horizon': int(4*np.pi//0.02), 'gp_num_sample': int(1.5*np.pi//0.02), 'gp_num_inducing': 25, 'gp_batch_size': 25, 'state_dim': 1, 'action_dim': 1, 'normalise_reward': False, 'diffusion_step': 50, 'task': TASK}, 
             'sharp_sine' : {'environment': 'sharp_sine', 'horizon': 628, 'gp_num_sample':314, 'gp_num_inducing': 25, 'gp_batch_size': 25, 'state_dim': 1, 'action_dim': 1, 'normalise_reward': False, 'diffusion_step': 50, 'task': TASK}}
 
 def createDataset():

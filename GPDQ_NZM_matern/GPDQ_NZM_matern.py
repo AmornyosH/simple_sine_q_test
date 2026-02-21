@@ -95,15 +95,15 @@ class GaussianProcessDiffusionQlearning:
             self.q_1_tar = self.q_1
             self.q_2_tar = self.q_2
             
-            # # Load pre-trained diffusion models
-            # self.beh_training_record = 0
-            # self.epsilon_beh = my_NN.MLP(input_dim=self.EPSILON_INPUT_DIM, output_dim=self.ACTION_DIM)
-            # self.epsilon_beh_loss_append = []
+            # Load pre-trained diffusion models
+            self.beh_training_record = 0
+            self.epsilon_beh = my_NN.MLP(input_dim=self.EPSILON_INPUT_DIM, output_dim=self.ACTION_DIM)
+            self.epsilon_beh_loss_append = []
 
-            _loaded_training_record = torch.load(self.training_record_path, map_location=torch.device('cpu' if not CUDA else 'cuda'), weights_only=False)
-            self.beh_training_record = _loaded_training_record['beh_training_record']
-            self.epsilon_beh = _loaded_training_record['epsilon_beh']
-            self.epsilon_beh_loss_append = _loaded_training_record['epsilon_beh_loss_append']
+            # _loaded_training_record = torch.load(self.training_record_path, map_location=torch.device('cpu' if not CUDA else 'cuda'), weights_only=False)
+            # self.beh_training_record = _loaded_training_record['beh_training_record']
+            # self.epsilon_beh = _loaded_training_record['epsilon_beh']
+            # self.epsilon_beh_loss_append = _loaded_training_record['epsilon_beh_loss_append']
 
         # ==================== Load Previous Record and Models ======================
         elif _ans_1 == 'y' or _ans_1=='Y' or _ans_1=='Yes' or _ans_1=='YES':
@@ -570,53 +570,11 @@ class GaussianProcessDiffusionQlearning:
         self.q_2.train()
 
         # ========================= Training Loop Start =========================
-        # ========== Diffusion Models
-        while self.beh_training_record < total_epoch:
-            diffu_loss_accum = 0
-            # Get shuffle indices
-            _sampling_indices = torch.randperm(buffer_size)
-            for g in range(_num_gradient_step):
-                # Get training batches
-                batch_state_tensor = state_buffer[_sampling_indices[0+(g*_batch_size):_batch_size+(g*_batch_size)]]
-                batch_action_tensor = action_buffer[_sampling_indices[0+(g*_batch_size):_batch_size+(g*_batch_size)]]
-
-                # Prepare data for diffusion learning
-                rand_t = torch.randint(low=0, high=self.DIFFU_STEPS, size=[_batch_size])
-                encode_t_tensor = self.POS_EMB[rand_t]  # Retrieve
-                epsilon_tensor = torch.normal(mean=self.DIFFU_MEAN, std=self.DIFFU_STD, size=[_batch_size, self.ACTION_DIM])
-                forward_action_tensor = self.forwardProcess(data=batch_action_tensor, epsilon=epsilon_tensor, step=rand_t)
-                diffu_loss, _ = _trainDiffusionBeh(inputs=torch.concat([batch_state_tensor, forward_action_tensor, encode_t_tensor], dim=1), y_true=epsilon_tensor)
-                diffu_loss_accum += diffu_loss.tolist()
-
-            self.beh_training_record += 1
-            self.epsilon_beh_loss_append.append(diffu_loss_accum/_num_gradient_step)
-            print('Epoch: ', self.beh_training_record,
-                    ', Gradient_step: ', int(self.beh_training_record*_num_gradient_step), 
-                    ', Diffu_loss: ', round(diffu_loss_accum/_num_gradient_step, 4))
-            # Save the training_records
-            self.recordSaving(path=self.training_record_path)
-
-        mean_s_p_buffer = []
-        # _iterations = buffer_size//256
-        # for k in range(_iterations):
-        #     # mean_s_p_buffer.append(self.getAlteredObservation(state_buffer[0+(k*256):256+(k*256)]).detach().cpu().numpy())
-        #     mean_s_p_buffer_tensor = torch.vstack(self.getAlteredObservation(state_buffer[0+(k*256):256+(k*256)]))
-        # # mean_s_p_buffer = np.reshape(np.vstack(mean_s_p_buffer), [-1, self.ACTION_DIM])
-        # # mean_s_p_buffer_tensor = torch.tensor(mean_s_p_buffer, dtype=torch.float32)
-        # mean_s_p_buffer_tensor = self.getAlteredObservation(state_buffer)
-        with torch.no_grad():
-            for i in range(0, buffer_size, 256):
-                mean_s_p_buffer.append(self.getAlteredObservation(state_buffer[i:i + 256]))
-        mean_s_p_buffer_tensor = torch.cat(mean_s_p_buffer)
-
         while self.training_record < total_epoch:
             start_time = time()
             diffu_loss_accum = 0
             q_1_loss_accum = 0
             q_2_loss_accum = 0
-
-            # # Get mean s_prime buffer
-            # mean_s_p_buffer = self.getAlteredObservation(state_buffer)
 
             # Get shuffle indices
             _sampling_indices = torch.randperm(buffer_size)
@@ -628,8 +586,6 @@ class GaussianProcessDiffusionQlearning:
                 batch_action_tensor = action_buffer[_sampling_indices[0+(g*_batch_size):_batch_size+(g*_batch_size)]]
                 batch_reward_tensor = reward_buffer[_sampling_indices[0+(g*_batch_size):_batch_size+(g*_batch_size)]]
                 batch_next_state_tensor = next_state_buffer[_sampling_indices[0+(g*_batch_size):_batch_size+(g*_batch_size)]]
-                batch_mean_s_p_buffer_tensor = mean_s_p_buffer_tensor[_sampling_indices[0+(g*_batch_size):_batch_size+(g*_batch_size)]]
-                self.gp_model.mean_s_p = batch_mean_s_p_buffer_tensor
 
                 # Prepare data for q learning
                 _batch_next_action = self.predict(state=batch_next_state_tensor, size=_batch_size, guide=True, dec_step=False).view(-1, self.ACTION_DIM)
@@ -647,6 +603,13 @@ class GaussianProcessDiffusionQlearning:
                 forward_action_tensor = self.forwardProcess(data=batch_action_tensor, epsilon=epsilon_tensor, step=rand_t)
                 diffu_loss, _ = _trainDiffusionBeh(inputs=torch.concat([batch_state_tensor, forward_action_tensor, encode_t_tensor], dim=1), y_true=epsilon_tensor)
                 diffu_loss_accum += diffu_loss.tolist()
+
+                # Train GP Mean
+                self.gp_model.mean_optimizer.zero_grad()
+                _pred_q_gp = self.q_1(torch.concat([batch_state_tensor, self.gp_model.mean(batch_state_tensor)], dim=1))
+                _pred_q_gp = -_pred_q_gp.mean()
+                _pred_q_gp.backward(retain_graph=True)
+                self.gp_model.mean_optimizer.step()
 
                 # Update target networks
                 _updateTargetNetworks()
@@ -668,27 +631,13 @@ class GaussianProcessDiffusionQlearning:
                   ', Gradient_step: ', int(self.training_record*_num_gradient_step), 
                   ', Diffu_loss: ', round(diffu_loss_accum/_num_gradient_step, 4),
                   ', Q1_loss: ', round(q_1_loss_accum/_num_gradient_step, 4),
+                  ', GP_mean_loss: ', round(_pred_q_gp.tolist(), 4),
                   ', GP_loss: ', round(_gp_loss, 4),
                   ', Time/Epoch: ', round(time()-start_time, 4))
 
             # Update Altered observation for every ... epoch.
             if self.training_record % 5 == 0:
                 self.gp_model.y_train_full = self.getAlteredObservation(self.gp_model.x_train_full)
-                # Reset m(s')
-                mean_s_p_buffer = []
-                # _iterations = buffer_size // 157
-                # for k in range(_iterations):
-                #     mean_s_p_buffer.append(
-                #         self.getAlteredObservation(state_buffer[0 + (k * 157):157 + (k * 157)]).detach().cpu().numpy())
-                # mean_s_p_buffer = np.reshape(np.vstack(mean_s_p_buffer), [-1, self.ACTION_DIM])
-                # mean_s_p_buffer_tensor = torch.tensor(mean_s_p_buffer, dtype=torch.float32)
-                # mean_s_p_buffer_tensor = self.getAlteredObservation(state_buffer)
-                # self.gp_model.mean_s_p = self.getAlteredObservation(state_buffer)
-                # _gp_loss = self.gp_model.myTraining(total_epoch=10, ft=False)
-                with torch.no_grad():
-                    for i in range(0, buffer_size, 256):
-                        mean_s_p_buffer.append(self.getAlteredObservation(state_buffer[i:i + 256]))
-                mean_s_p_buffer_tensor = torch.cat(mean_s_p_buffer)
 
             # Save the training_records
             self.recordSaving(path=self.training_record_path)
@@ -768,13 +717,13 @@ class GaussianProcessDiffusionQlearning:
 
                 _L = torch.linalg.cholesky(_k, upper=False)
                 _alpha = torch.linalg.solve_triangular(_L.T,
-                                                       torch.linalg.solve_triangular(_L, (_batch_y-self.gp_model.mean), upper=False),
+                                                       torch.linalg.solve_triangular(_L, (_batch_y), upper=False),
                                                        upper=True)
 
                 # _mll = (-0.5 * _batch_y.T @ _alpha) - \
                 #        torch.sum(torch.diagonal(_L)) - \
                 #        (_batch_size * torch.log(torch.tensor(2 * torch.pi)) / 2)
-                _mll = (-0.5 * (_batch_y-self.gp_model.mean).T @ _alpha) - \
+                _mll = (-0.5 * (_batch_y).T @ _alpha) - \
                        torch.sum(torch.diagonal(_L)) - \
                        (_batch_size * torch.log(torch.tensor(2 * torch.pi)) / 2)
                 _mll = -_mll.mean()
@@ -822,7 +771,7 @@ class GaussianProcessDiffusionQlearning:
                     'q_1_loss_append': self.q_1_loss_append, 
                     'q_2_loss_append': self.q_2_loss_append,
                     'gp_state_dict': self.gp_model.state_dict(),
-                    'gp_mean': self.gp_model.mean,
+                    'gp_mean': self.gp_model.mean.state_dict(),
                     'gp_loss_append': self.gp_model.mll_append,
                     'gp_x_train': self.gp_model.x_train,
                     'gp_y_train': self.gp_model.y_train}, path)

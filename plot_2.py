@@ -54,8 +54,6 @@ pred_y_dql = dql_test_data['arr_0']
 pred_q_dql = dql_test_data['arr_3']
 pred_y_dql_mean, pred_y_dql_std = runningMeanAndStd(pred_y_dql)
 
-
-
 # Plot sine wave
 plt.scatter(x, y, alpha=0.5, color='gray', label='$\\boldsymbol{\pi}_b$')
 bg = plt.imshow(R, extent=[x.min(), x.max(), y.min(), y.max()], origin='lower', aspect='auto', cmap='viridis', alpha=0.7)

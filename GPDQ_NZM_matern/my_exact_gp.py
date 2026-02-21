@@ -39,9 +39,8 @@ class myExactGP(torch.nn.Module):
             self.ell = torch.nn.Parameter(torch.ones(size=[1, self.x_dim], dtype=torch.float32), requires_grad=True)
 
             self.sigma_p = torch.nn.Parameter(torch.tensor(1.0, dtype=torch.float32), requires_grad=True)
-            self.mean = torch.nn.Parameter(torch.zeros(size=[self.gp_training_size, self.y_dim], dtype=torch.float32), requires_grad=True)
-            self.mean_s_p = []
-
+            self.mean = my_NN.MLP(input_dim=self.x_dim, output_dim=self.y_dim)
+            self.mean_optimizer = torch.optim.Adam(self.mean.parameters(), lr=3e-04)
             # self.sigma_n = 0
             # self.ell = 0
 
@@ -153,10 +152,13 @@ class myExactGP(torch.nn.Module):
             # _mean = _k_s.T @ self.K_inv @ self.y_train
             # _var = _k_ss - _k_s.T @ self.K_inv @ _k_s
 
+            _mean_train = self.mean(self.x_train)
+            _mean_test = self.mean(x_test)
+
             # Cholesky decomposition
             _L = torch.linalg.cholesky(self.K, upper=False)
-            _alpha = torch.linalg.solve_triangular(_L.T, torch.linalg.solve_triangular(_L, (self.y_train-self.mean), upper=False), upper=True)
-            _mean = _k_s.T @ _alpha
+            _alpha = torch.linalg.solve_triangular(_L.T, torch.linalg.solve_triangular(_L, (self.y_train-_mean_train), upper=False), upper=True)
+            _mean = _mean_test + _k_s.T @ _alpha
             _v = torch.linalg.solve_triangular(_L, _k_s, upper=False)
             _var = _k_ss - (_v.T @ _v)
 

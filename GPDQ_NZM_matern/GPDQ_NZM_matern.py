@@ -151,7 +151,7 @@ class GaussianProcessDiffusionQlearning:
         self.gp_model.sigma_n = torch.nn.Parameter(_gp_state_dict['sigma_n'], requires_grad=True)
         self.gp_model.sigma_p = torch.nn.Parameter(_gp_state_dict['sigma_p'], requires_grad=True)
         self.gp_model.ell = torch.nn.Parameter(_gp_state_dict['ell'], requires_grad=True)
-        self.gp_model.mean = torch.nn.Parameter(_gp_state_dict['mean'], requires_grad=True)
+        self.gp_model.mean.load_state_dict(_loaded_training_record['gp_mean'])
         self.gp_model.mll_append = _loaded_training_record['gp_loss_append']
         self.gp_model.x_train = _loaded_training_record['gp_x_train']
         self.gp_model.y_train = _loaded_training_record['gp_y_train']
@@ -675,10 +675,14 @@ class GaussianProcessDiffusionQlearning:
             # _mean = _k_s.T @ self.K_inv @ self.y_train
             # _var = _k_ss - _k_s.T @ self.K_inv @ _k_s
 
+            _mean_train = self.gp_model.mean(self.gp_model.x_train)
+            _mean_test = self.gp_model.mean(x_test)
+            print(_mean_train, _mean_test)
+
             # Cholesky decomposition
             _L = torch.linalg.cholesky(self.gp_model.K, upper=False)
             _alpha = torch.linalg.solve_triangular(_L.T, torch.linalg.solve_triangular(_L,
-                        self.gp_model.y_train, upper=False), upper=True)
+                        self.gp_model.y_train - _mean_train, upper=False), upper=True)
             # _alpha = torch.linalg.solve_triangular(_L.T,
             #                                        torch.linalg.solve_triangular(_L,
             #                                        (self.gp_model.y_train-self.gp_model.mean), upper=False), upper=True)
@@ -689,8 +693,10 @@ class GaussianProcessDiffusionQlearning:
             # _m_s_p = self.gp_model.mean(torch.tensor(x_test, dtype=torch.float32))
             # _m_s_p = self.getAlteredObservation(torch.tensor(x_test, dtype=torch.float32))
 
+
+
             # _mean = _m_s_p + (_k_s.T @ _alpha)
-            _mean = _k_s.T @ _alpha
+            _mean = _mean_test + _k_s.T @ _alpha
             _v = torch.linalg.solve_triangular(_L, _k_s, upper=False)
             _var = _k_ss - (_v.T @ _v)
 

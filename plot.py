@@ -20,7 +20,7 @@ q = dataset['true_q']
 
 # Load test data
 # GPDQ (RBF) -- Full data
-gpdq_test_data = np.load('GPDQ_rbf/evaluation_data_1.npz')
+gpdq_test_data = np.load('GPDQ_NZM_matern/evaluation_data.npz')
 pred_y_gpdq = gpdq_test_data['arr_0']
 pred_g_mu_gpdq = gpdq_test_data['arr_1']
 pred_g_var_gpdq = gpdq_test_data['arr_2']

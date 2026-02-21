@@ -154,7 +154,7 @@ class myExactGP(torch.nn.Module):
 
             _mean_train = self.mean(self.x_train)
             _mean_test = self.mean(x_test)
-
+            print(_mean_train, _mean_test)
             # Cholesky decomposition
             _L = torch.linalg.cholesky(self.K, upper=False)
             _alpha = torch.linalg.solve_triangular(_L.T, torch.linalg.solve_triangular(_L, (self.y_train-_mean_train), upper=False), upper=True)

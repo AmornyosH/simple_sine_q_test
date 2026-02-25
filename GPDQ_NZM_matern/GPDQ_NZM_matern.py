@@ -447,6 +447,7 @@ class GaussianProcessDiffusionQlearning:
             self.mu_r = _mu_r
             self.mu_r = torch.clip(input=_mu_r, min=self.MIN_DIFFU_SPACE, max=self.MAX_DIFFU_SPACE)
             self.var_r = _var_r
+            # print(self.mu_r)
 
         # Start reverse processes
         for i in range(_diffu_steps): 
@@ -606,7 +607,8 @@ class GaussianProcessDiffusionQlearning:
 
                 # Train GP Mean
                 self.gp_model.mean_optimizer.zero_grad()
-                _pred_q_gp = self.q_1(torch.concat([batch_state_tensor, self.gp_model.mean(batch_state_tensor)], dim=1))
+                _batch_mean_action = self.predict(state=batch_state_tensor, size=_batch_size, guide=True, dec_step=False).view(-1, self.ACTION_DIM)
+                _pred_q_gp = self.q_1(torch.concat([batch_state_tensor, _batch_mean_action], dim=1))
                 _pred_q_gp = -_pred_q_gp.mean()
                 _pred_q_gp.backward(retain_graph=True)
                 self.gp_model.mean_optimizer.step()
@@ -677,7 +679,7 @@ class GaussianProcessDiffusionQlearning:
 
             _mean_train = self.gp_model.mean(self.gp_model.x_train)
             _mean_test = self.gp_model.mean(x_test)
-            print(_mean_train, _mean_test)
+            # print(_mean_train, _mean_test)
 
             # Cholesky decomposition
             _L = torch.linalg.cholesky(self.gp_model.K, upper=False)
@@ -692,8 +694,6 @@ class GaussianProcessDiffusionQlearning:
             # _m_s_p = self.gp_model.mean
             # _m_s_p = self.gp_model.mean(torch.tensor(x_test, dtype=torch.float32))
             # _m_s_p = self.getAlteredObservation(torch.tensor(x_test, dtype=torch.float32))
-
-
 
             # _mean = _m_s_p + (_k_s.T @ _alpha)
             _mean = _mean_test + _k_s.T @ _alpha
@@ -721,16 +721,18 @@ class GaussianProcessDiffusionQlearning:
                 # _k = self.svmKernel(X_1=_batch_x, X_2=_batch_x, noise=True)
                 _k = self.gp_model.maternKernel(X_1=_batch_x, X_2=_batch_x, noise=True)
 
+                _mean_train = self.gp_model.mean(_batch_x)
+
                 _L = torch.linalg.cholesky(_k, upper=False)
                 _alpha = torch.linalg.solve_triangular(_L.T,
-                                                       torch.linalg.solve_triangular(_L, (_batch_y), upper=False),
+                                                       torch.linalg.solve_triangular(_L, (_batch_y - _mean_train), upper=False),
                                                        upper=True)
 
                 # _mll = (-0.5 * _batch_y.T @ _alpha) - \
                 #        torch.sum(torch.diagonal(_L)) - \
                 #        (_batch_size * torch.log(torch.tensor(2 * torch.pi)) / 2)
-                _mll = (-0.5 * (_batch_y).T @ _alpha) - \
-                       torch.sum(torch.diagonal(_L)) - \
+                _mll = (-0.5 * (_batch_y - _mean_train).T @ _alpha) - \
+                       torch.sum(torch.log(torch.diagonal(_L))) - \
                        (_batch_size * torch.log(torch.tensor(2 * torch.pi)) / 2)
                 _mll = -_mll.mean()
 

@@ -39,7 +39,7 @@ class myExactGP(torch.nn.Module):
             self.ell = torch.nn.Parameter(torch.ones(size=[1, self.x_dim], dtype=torch.float32), requires_grad=True)
 
             self.sigma_p = torch.nn.Parameter(torch.tensor(1.0, dtype=torch.float32), requires_grad=True)
-            self.mean = my_NN.MLP(input_dim=self.x_dim, output_dim=self.y_dim)
+            self.mean = my_NN.MLP_GP(input_dim=self.x_dim, output_dim=self.y_dim)
             self.mean_optimizer = torch.optim.Adam(self.mean.parameters(), lr=3e-04)
             # self.sigma_n = 0
             # self.ell = 0
@@ -154,7 +154,7 @@ class myExactGP(torch.nn.Module):
 
             _mean_train = self.mean(self.x_train)
             _mean_test = self.mean(x_test)
-            print(_mean_train, _mean_test)
+            # print(_mean_train, _mean_test)
             # Cholesky decomposition
             _L = torch.linalg.cholesky(self.K, upper=False)
             _alpha = torch.linalg.solve_triangular(_L.T, torch.linalg.solve_triangular(_L, (self.y_train-_mean_train), upper=False), upper=True)
@@ -182,10 +182,12 @@ class myExactGP(torch.nn.Module):
                 # _k = self.svmKernel(X_1=_batch_x, X_2=_batch_x, noise=True)
                 _k = self.maternKernel(X_1=_batch_x, X_2=_batch_x, noise=True)
 
-                _L = torch.linalg.cholesky(_k, upper=False)
-                _alpha = torch.linalg.solve_triangular(_L.T, torch.linalg.solve_triangular(_L, _batch_y, upper=False), upper=True)
+                _mean_train = self.mean(_batch_x)
 
-                _mll = (-0.5 * _batch_y.T @ _alpha) - \
+                _L = torch.linalg.cholesky(_k, upper=False)
+                _alpha = torch.linalg.solve_triangular(_L.T, torch.linalg.solve_triangular(_L, _batch_y - _mean_train, upper=False), upper=True)
+
+                _mll = (-0.5 * (_batch_y - _mean_train).T @ _alpha) - \
                        torch.sum(torch.diagonal(_L)) - \
                        (_batch_size*torch.log(torch.tensor(2*torch.pi))/2)
                 _mll = -_mll.mean()
@@ -216,5 +218,6 @@ class myExactGP(torch.nn.Module):
     def recordSaving(self, path:str):
         torch.save({'state_dict': self.state_dict(), 
                     'loss_append': self.mll_append,
+                    'mean': self.mean.state_dict(),
                     'x_train': self.x_train, 
                     'y_train': self.y_train}, path)

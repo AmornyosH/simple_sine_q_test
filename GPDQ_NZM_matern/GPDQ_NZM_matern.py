@@ -100,10 +100,10 @@ class GaussianProcessDiffusionQlearning:
             self.epsilon_beh = my_NN.MLP(input_dim=self.EPSILON_INPUT_DIM, output_dim=self.ACTION_DIM)
             self.epsilon_beh_loss_append = []
 
-            # _loaded_training_record = torch.load(self.training_record_path, map_location=torch.device('cpu' if not CUDA else 'cuda'), weights_only=False)
-            # self.beh_training_record = _loaded_training_record['beh_training_record']
-            # self.epsilon_beh = _loaded_training_record['epsilon_beh']
-            # self.epsilon_beh_loss_append = _loaded_training_record['epsilon_beh_loss_append']
+            _loaded_training_record = torch.load(self.training_record_path, map_location=torch.device('cpu' if not CUDA else 'cuda'), weights_only=False)
+            self.beh_training_record = _loaded_training_record['beh_training_record']
+            self.epsilon_beh = _loaded_training_record['epsilon_beh']
+            self.epsilon_beh_loss_append = _loaded_training_record['epsilon_beh_loss_append']
 
         # ==================== Load Previous Record and Models ======================
         elif _ans_1 == 'y' or _ans_1=='Y' or _ans_1=='Yes' or _ans_1=='YES':
@@ -576,6 +576,7 @@ class GaussianProcessDiffusionQlearning:
             diffu_loss_accum = 0
             q_1_loss_accum = 0
             q_2_loss_accum = 0
+            gp_mean_loss_accum = 0
 
             # Get shuffle indices
             _sampling_indices = torch.randperm(buffer_size)
@@ -610,6 +611,7 @@ class GaussianProcessDiffusionQlearning:
                 _batch_mean_action = self.predict(state=batch_state_tensor, size=_batch_size, guide=True, dec_step=False).view(-1, self.ACTION_DIM)
                 _pred_q_gp = self.q_1(torch.concat([batch_state_tensor, _batch_mean_action], dim=1))
                 _pred_q_gp = -_pred_q_gp.mean()
+                gp_mean_loss_accum += _pred_q_gp.tolist()
                 _pred_q_gp.backward(retain_graph=True)
                 self.gp_model.mean_optimizer.step()
 
@@ -618,7 +620,8 @@ class GaussianProcessDiffusionQlearning:
 
             # Train the gp
             # _gp_loss = self.gp_model.myTraining(total_epoch=10, ft=False)
-            _gp_loss = self.myGPTraining(total_epoch=10, ft=False)
+            if _num_gradient_step > 20000:
+                _gp_loss = self.myGPTraining(total_epoch=10, ft=False)
 
             # Increase training record after epoch finished.
             self.training_record += 1
@@ -633,7 +636,7 @@ class GaussianProcessDiffusionQlearning:
                   ', Gradient_step: ', int(self.training_record*_num_gradient_step), 
                   ', Diffu_loss: ', round(diffu_loss_accum/_num_gradient_step, 4),
                   ', Q1_loss: ', round(q_1_loss_accum/_num_gradient_step, 4),
-                  ', GP_mean_loss: ', round(_pred_q_gp.tolist(), 4),
+                  ', GP_mean_loss: ', round(gp_mean_loss_accum/_num_gradient_step, 4),
                   ', GP_loss: ', round(_gp_loss, 4),
                   ', Time/Epoch: ', round(time()-start_time, 4))
 

@@ -436,6 +436,7 @@ class GaussianProcessDiffusionQlearning:
 
     # Original Reverse Process Method
     def reverseProcess(self, inputs:list, size:int, guide:bool=False, dec_step:bool=False):
+        size = inputs.shape[0]  # <-- ADD THIS LINE
         # Initialise noisy data (needed to be clipped).
         x_T = torch.normal(size=[size, self.ACTION_DIM], mean=self.DIFFU_MEAN, std=self.DIFFU_STD)
         _diffu_steps = self.DIFFU_STEPS if not dec_step else self.DEC_DIFFU_STEPS
@@ -484,7 +485,7 @@ class GaussianProcessDiffusionQlearning:
         return self.reverseProcess(state, size, guide, dec_step)
 
     # Altered observation computation Method 
-    def getAlteredObservation(self, states):
+    def getAlteredObservation2(self, states):
         # print('Start computing altered memories...')
         with torch.no_grad():
             _y_hat_list = []
@@ -507,6 +508,35 @@ class GaussianProcessDiffusionQlearning:
                 _a_max = torch.squeeze(a_i_m_1[_max_q_index])
                 _y_hat_list.append(_a_max)
         return torch.stack(_y_hat_list, dim=0).view(-1, self.ACTION_DIM)
+
+    def getAlteredObservation(self, states):
+        with torch.no_grad():
+            _sampling_size = 8
+            batch_size = len(states)
+            
+            # Vectorize: reshape and repeat all states at once [batch*sampling, state_dim]
+            states_tensor = states.view(batch_size, 1, self.STATE_DIM) \
+                                .expand(batch_size, _sampling_size, self.STATE_DIM) \
+                                .reshape(batch_size * _sampling_size, self.STATE_DIM)
+
+            # Single batched predict call instead of per-sample loop
+            a_all = self.predict(state=states_tensor, size=batch_size * _sampling_size, guide=False)
+
+            # Reshape to [batch, sampling, action_dim] for per-sample argmax
+            a_all = a_all.view(batch_size, _sampling_size, self.ACTION_DIM)
+            states_rep = states_tensor.view(batch_size, _sampling_size, self.STATE_DIM)
+
+            # Compute Q-values in one batched call [batch, sampling, 1]
+            q_inputs = torch.cat([states_rep, a_all], dim=2) \
+                            .view(batch_size * _sampling_size, self.STATE_DIM + self.ACTION_DIM)
+            q_values = self.q_1(q_inputs).view(batch_size, _sampling_size)
+
+            # Argmax per sample, gather best actions
+            best_indices = q_values.argmax(dim=1)  # [batch]
+            best_indices_exp = best_indices.view(batch_size, 1, 1).expand(batch_size, 1, self.ACTION_DIM)
+            y_hat = a_all.gather(1, best_indices_exp).squeeze(1)  # [batch, action_dim]
+
+        return y_hat
 
     # Training Method (for offliine training)
     def training(self, total_epoch:int, eval:bool=False, ft:bool=False):
@@ -581,6 +611,9 @@ class GaussianProcessDiffusionQlearning:
             # Get shuffle indices
             _sampling_indices = torch.randperm(buffer_size)
 
+            # # Get alteredobservation for training mean function
+            # _a_true = self.getAlteredObservation(states=state_buffer)
+
             # Start gradient steps loop
             for g in range(_num_gradient_step):
                 # Get training batches
@@ -608,20 +641,35 @@ class GaussianProcessDiffusionQlearning:
 
                 # Train GP Mean
                 self.gp_model.mean_optimizer.zero_grad()
-                _batch_mean_action = self.predict(state=batch_state_tensor, size=_batch_size, guide=True, dec_step=False).view(-1, self.ACTION_DIM)
-                _pred_q_gp = self.q_1(torch.concat([batch_state_tensor, _batch_mean_action], dim=1))
-                _pred_q_gp = -_pred_q_gp.mean()
-                gp_mean_loss_accum += _pred_q_gp.tolist()
-                _pred_q_gp.backward(retain_graph=True)
+
+                # _batch_mean_action = self.predict(state=batch_state_tensor, size=_batch_size, guide=True, dec_step=False).view(-1, self.ACTION_DIM)
+                # _pred_q_gp = self.q_1(torch.concat([batch_state_tensor, _batch_mean_action], dim=1))
+                # _pred_q_gp = -_pred_q_gp.mean()
+                # gp_mean_loss_accum += _pred_q_gp.tolist()
+                # _pred_q_gp.backward(retain_graph=True)
+                
+                _a_true = self.getAlteredObservation(states=batch_state_tensor)
+                
+                # _a_pred = self.predict(state=batch_state_tensor, size=_batch_size, guide=True, dec_step=False).view(-1, self.ACTION_DIM)
+                # _gp_mean_loss = torch.square(_a_true[_sampling_indices[0+(g*_batch_size):_batch_size+(g*_batch_size)]] - _a_pred)
+
+                _a_pred = self.gp_model.mean(batch_state_tensor)
+
+                _gp_mean_loss = torch.square(_a_true - _a_pred)
+                _gp_mean_loss = _gp_mean_loss.mean()
+                _gp_mean_loss.backward(retain_graph=True)
+                gp_mean_loss_accum += _gp_mean_loss.tolist()
+
                 self.gp_model.mean_optimizer.step()
 
                 # Update target networks
                 _updateTargetNetworks()
 
             # Train the gp
-            # _gp_loss = self.gp_model.myTraining(total_epoch=10, ft=False)
-            if _num_gradient_step > 20000:
-                _gp_loss = self.myGPTraining(total_epoch=10, ft=False)
+            _gp_loss = self.myGPTraining(total_epoch=10, ft=False)
+            
+            # if self.training_record > 128:
+            #     _gp_loss = self.myGPTraining(total_epoch=10, ft=False)
 
             # Increase training record after epoch finished.
             self.training_record += 1

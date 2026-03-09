@@ -1,8 +1,8 @@
 import matplotlib.pyplot as plt
 import numpy as np
 import torch
-import seaborn as sns
-sns.set_theme()
+# import seaborn as sns
+# sns.set_theme()
 
 EXPERT_PATH = 'datasets/dataset_simple_sine.npz'
 # EXPERT_PATH = 'datasets/dataset_sharp_sine.npz'

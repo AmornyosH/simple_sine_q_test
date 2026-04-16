@@ -5,21 +5,21 @@ import torch
 import argparse
 import os
 
-# from GPDQ_rbf.GPDQ_rbf import GaussianProcessDiffusionQlearning
+from GPDQ_rbf.GPDQ_rbf import GaussianProcessDiffusionQlearning
 # from GPDQ_matern2.GPDQ_matern2 import GaussianProcessDiffusionQlearning
 # from GPDQ_matern.GPDQ_matern import GaussianProcessDiffusionQlearning
 # from GPDQ_matern52.GPDQ_matern52 import GaussianProcessDiffusionQlearning
 # from GPDQ_Resnet.GPDQ_Resnet import GaussianProcessDiffusionQlearning
 # from GPDQ_dkl.GPDQ_dkl import GaussianProcessDiffusionQlearning
-from GPDQ_NZM_matern.GPDQ_NZM_matern import GaussianProcessDiffusionQlearning
+# from GPDQ_NZM_matern.GPDQ_NZM_matern import GaussianProcessDiffusionQlearning
 from IQL.IQL import MyCustomIQL
 from DQL.DQL import MyCustomDQL
 
 def addArguments(parser):
     parser.add_argument('--env', default='simple_sine', help='Environment: ["simple_sine", "sharp_sine"]')
     parser.add_argument('--alg', default="GPDQ", help='Algorithm: ["GPDQ"], default:GPDQ')
-    parser.add_argument('--task', default='testing', help='Task: ["training", "testing"], default:training')
-    parser.add_argument('--gradient_step', default=50000, help='Gradient Step, default:1000000')
+    parser.add_argument('--task', default='training', help='Task: ["training", "testing"], default:training')
+    parser.add_argument('--gradient_step', default=10000, help='Gradient Step, default:1000000')
 
 def setGlobalSeed(seed:int):
     random.seed(seed)

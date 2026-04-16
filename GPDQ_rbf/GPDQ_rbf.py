@@ -44,6 +44,10 @@ class GaussianProcessDiffusionQlearning:
             self.NUM_SAMPLE = 1e+06
             self.MINIBATCH_SIZE = 256
 
+        # Get action mean/std
+        self.action_mean = torch.mean(self.action_buffer)
+        self.action_std = torch.std(self.action_buffer) + 1e-03
+
         # Initialise Diffusion Model's Parameters
         self.initialiseDiffusionParams(schedule='vp', beta_min=1, beta_max=10, num_step=params_dict['diffusion_step'], dec_step=params_dict['diffusion_step'])
 
@@ -87,11 +91,11 @@ class GaussianProcessDiffusionQlearning:
             # self.epsilon_beh = my_NN.LNResNet(input_dim=self.EPSILON_INPUT_DIM, output_dim=self.ACTION_DIM, dropout_rate=0.1)
             self.epsilon_beh_loss_append = []
 
-            # _loaded_training_record = torch.load(self.training_record_path, map_location=torch.device('cpu' if not CUDA else 'cuda'), weights_only=False)
-            # # _loaded_training_record = torch.load(self.checkpoint_path, map_location=torch.device('cpu' if not CUDA else 'cuda'), weights_only=False)
-            # self.beh_training_record = _loaded_training_record['beh_training_record']
-            # self.epsilon_beh = _loaded_training_record['epsilon_beh']
-            # self.epsilon_beh_loss_append = _loaded_training_record['epsilon_beh_loss_append']
+            _loaded_training_record = torch.load(self.training_record_path, map_location=torch.device('cpu' if not CUDA else 'cuda'), weights_only=False)
+            # _loaded_training_record = torch.load(self.checkpoint_path, map_location=torch.device('cpu' if not CUDA else 'cuda'), weights_only=False)
+            self.beh_training_record = _loaded_training_record['beh_training_record']
+            self.epsilon_beh = _loaded_training_record['epsilon_beh']
+            self.epsilon_beh_loss_append = _loaded_training_record['epsilon_beh_loss_append']
 
         # ==================== Load Previous Record and Models ======================
         elif _ans_1 == 'y' or _ans_1=='Y' or _ans_1=='Yes' or _ans_1=='YES':
@@ -617,8 +621,13 @@ class GaussianProcessDiffusionQlearning:
 
                 # Prepare data for q learning
                 _batch_next_action = self.predict(state=batch_next_state_tensor, size=_batch_size, guide=True, dec_step=False).view(-1, self.ACTION_DIM)
-                y_true_1 = _getExpectedCumulativeReturn(inputs=torch.concat([batch_next_state_tensor, _batch_next_action], dim=1))
-                q_1_loss = _trainQ1Network(inputs=torch.concat([batch_state_tensor, batch_action_tensor], dim=1), y_true=y_true_1) # State-Action network (Q)
+                _pdf_a = (1 / torch.sqrt(2*torch.pi*(self.gp_model.y_std**2))) * torch.exp(-0.5 * torch.square((_batch_next_action - self.gp_model.y_mean) / self.gp_model.y_std))
+                _pdf_b = (1 / torch.sqrt(2*torch.pi*(self.action_std**2))) * torch.exp(-0.5 * torch.square((_batch_next_action - self.action_mean) / self.action_std))
+                # print(self.mu_r, self.var_r)
+                _log_prob_ratio = torch.log(_pdf_a) - torch.log(_pdf_b)
+                # print(_pdf_a, _pdf_b, _log_prob_ratio)
+                y_true_1 = batch_reward_tensor + _GAMMA * torch.exp(_log_prob_ratio) * self.q_1_tar(torch.concat([batch_next_state_tensor, _batch_next_action], dim=1))
+                q_1_loss = torch.square(y_true_1 - self.q_1(torch.concat([batch_state_tensor, batch_action_tensor], dim=1))).mean()
                 q_1_loss_accum += q_1_loss.tolist()
                 self.q_1_optimizer.zero_grad()
                 q_1_loss.backward(retain_graph=True)

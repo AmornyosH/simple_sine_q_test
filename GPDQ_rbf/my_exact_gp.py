@@ -82,6 +82,9 @@ class myExactGP(torch.nn.Module):
         self.K = self.rbfKernel(X_1=self.x_train, X_2=self.x_train, noise=True)
         # self.K = self.maternKernel(X_1=self.x_train, X_2=self.x_train, noise=True)
         # self.K = self.svmKernel(X_1=self.x_train, X_2=self.x_train, noise=True)
+        
+        self.y_mean = torch.mean(self.y_train)
+        self.y_std = torch.std(self.y_train) + 1e-03
 
     def rbfKernel(self, X_1, X_2, noise=False):
         X_1 = torch.tensor(X_1, dtype=torch.float32) if not torch.is_tensor(X_1) else X_1
